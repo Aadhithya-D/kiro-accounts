@@ -85,6 +85,20 @@ No extra packages or T3 Code modifications are required.
 
 ## Switch accounts
 
+To rename or delete a saved login:
+
+```sh
+kiro-accounts rename personal vakyam
+kiro-accounts delete second
+```
+
+`rename` preserves the saved credentials and email, updates the last-selected
+alias when necessary, and refuses to overwrite another saved account.
+`delete` removes the named snapshot and clears its last-selected marker. These
+commands work while Kiro is running; neither changes the active Kiro login or
+logs you out. Deletion leaves other aliases and the separate recovery snapshot
+unchanged. Register a deleted account again with `save` if needed.
+
 Close running Kiro CLI / T3 Kiro sessions first, then:
 
 ```sh

@@ -373,6 +373,35 @@ class Accounts:
         path = self.store / '.active.json'
         return json.loads(path.read_text()).get('name') if path.exists() else None
 
+    def rename(self, name, new_name):
+        source, destination = self.path(name), self.path(new_name)
+        if not source.is_file():
+            raise AccountError('Saved account not found.')
+        if os.path.lexists(destination):
+            raise AccountError('An account with the new name already exists.')
+        selected = self.active() == name
+        source.rename(destination)
+        try:
+            if selected:
+                atomic_json(self.store / '.active.json', {'name': new_name})
+        except BaseException:
+            destination.rename(source)
+            raise
+
+    def delete(self, name):
+        path = self.path(name)
+        if not path.is_file():
+            raise AccountError('Saved account not found.')
+        selected = self.active() == name
+        if selected:
+            atomic_json(self.store / '.active.json', {'name': None})
+        try:
+            path.unlink()
+        except BaseException:
+            if selected:
+                atomic_json(self.store / '.active.json', {'name': name})
+            raise
+
     def switch(self, name=None, restore=False):
         data = self.read(self.store / '.before-switch.json' if restore else self.path(name))
         ensure_idle()
@@ -450,9 +479,12 @@ def main():
     parser.add_argument('--kiro-binary', default='kiro-cli', help='Kiro executable used for isolated queries')
     parser.add_argument('--timeout', type=float, default=45, help='Maximum seconds per account query (default: 45)')
     commands = parser.add_subparsers(dest='command', required=True)
-    for command in ('save', 'use'):
+    for command in ('save', 'use', 'delete'):
         sub = commands.add_parser(command)
         sub.add_argument('name')
+    rename = commands.add_parser('rename', help='Rename a saved account alias')
+    rename.add_argument('name')
+    rename.add_argument('new_name')
     for command in ('next', 'restore'):
         commands.add_parser(command)
     for command in ('list', 'usage'):
@@ -466,7 +498,13 @@ def main():
     accounts = Accounts(args.db, args.store)
     try:
         with accounts.lock():
-            if args.command == 'save':
+            if args.command == 'rename':
+                accounts.rename(args.name, args.new_name)
+                print(f'Renamed {args.name} to {args.new_name}.')
+            elif args.command == 'delete':
+                accounts.delete(args.name)
+                print(f'Deleted saved login {args.name}. Active Kiro login unchanged.')
+            elif args.command == 'save':
                 identity = accounts.save(args.name, args.kiro_binary, args.timeout)
                 email = f" ({safe_cell(identity['email'])})" if identity and identity.get('email') else ''
                 print(f'Saved login as {args.name}{email}.')

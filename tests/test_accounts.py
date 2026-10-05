@@ -93,6 +93,58 @@ class AccountsTest(unittest.TestCase):
             self.accounts.save('a')
         self.assertFalse(self.accounts.db.exists())
 
+    def test_rename_preserves_snapshot_and_updates_selected_alias(self):
+        self.accounts.save('a')
+        before = self.accounts.path('a').read_bytes()
+        live = self.accounts.db.read_bytes()
+        self.accounts.rename('a', 'vakyam')
+        self.assertEqual(self.accounts.names(), ['vakyam'])
+        self.assertEqual(self.accounts.path('vakyam').read_bytes(), before)
+        self.assertEqual(self.accounts.active(), 'vakyam')
+        self.assertEqual(self.accounts.db.read_bytes(), live)
+        self.assertEqual(self.accounts.path('vakyam').stat().st_mode & 0o777, 0o600)
+
+    def test_rename_rejects_collisions_missing_source_and_invalid_names(self):
+        self.enroll()
+        before = self.accounts.path('a').read_bytes()
+        for old, new in [('a', 'b'), ('missing', 'new'), ('a', '../escape')]:
+            with self.assertRaises(AccountError):
+                self.accounts.rename(old, new)
+        self.assertEqual(self.accounts.path('a').read_bytes(), before)
+        self.assertEqual(self.accounts.active(), 'b')
+
+    def test_rename_rolls_back_if_selection_update_fails(self):
+        self.accounts.save('a')
+        with patch('kiro_accounts.atomic_json', side_effect=OSError('failed')):
+            with self.assertRaises(OSError):
+                self.accounts.rename('a', 'new')
+        self.assertEqual(self.accounts.names(), ['a'])
+        self.assertEqual(self.accounts.active(), 'a')
+
+    def test_delete_selected_alias_preserves_live_login_and_other_accounts(self):
+        self.enroll()
+        live = self.accounts.db.read_bytes()
+        self.accounts.delete('b')
+        self.assertEqual(self.accounts.names(), ['a'])
+        self.assertIsNone(self.accounts.active())
+        self.assertEqual(self.accounts.db.read_bytes(), live)
+
+    def test_delete_other_alias_keeps_selection_and_rejects_invalid_names(self):
+        self.enroll()
+        self.accounts.delete('a')
+        self.assertEqual(self.accounts.active(), 'b')
+        for name in ('a', '../escape'):
+            with self.assertRaises(AccountError):
+                self.accounts.delete(name)
+
+    def test_delete_restores_selection_when_unlink_fails(self):
+        self.accounts.save('a')
+        with patch.object(Path, 'unlink', side_effect=OSError('failed')):
+            with self.assertRaises(OSError):
+                self.accounts.delete('a')
+        self.assertEqual(self.accounts.names(), ['a'])
+        self.assertEqual(self.accounts.active(), 'a')
+
 
 if __name__ == '__main__':
     unittest.main()
